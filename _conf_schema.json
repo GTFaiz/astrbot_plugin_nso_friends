@@ -1,0 +1,95 @@
+{
+  "poll_interval": {
+    "description": "轮询间隔（秒）",
+    "type": "int",
+    "hint": "每隔多少秒拉取一次好友列表。建议 180–600 秒，过短可能触发 Nintendo 限流。最小 60。",
+    "default": 300
+  },
+  "enable_push": {
+    "description": "启用后台轮询与推送",
+    "type": "bool",
+    "hint": "关闭后插件不再自动拉取好友状态（手动 /nso 查询、/nso 记录 仍然可用），也不会积累本地游玩记录。",
+    "default": true
+  },
+  "notify_game_start": {
+    "description": "推送「开始游玩」",
+    "type": "bool",
+    "hint": "好友从在线/离线变为正在游玩某游戏时推送游戏卡片。",
+    "default": true
+  },
+  "notify_game_change": {
+    "description": "推送「切换游戏」",
+    "type": "bool",
+    "hint": "好友从游戏 A 切换到游戏 B 时推送新游戏卡片。",
+    "default": true
+  },
+  "notify_game_stop": {
+    "description": "推送「结束游玩」",
+    "type": "bool",
+    "hint": "好友停止游玩时发送一条文本（含本次观测时长）。默认关闭，避免刷屏。",
+    "default": false
+  },
+  "render_card": {
+    "description": "渲染游戏卡片图片",
+    "type": "bool",
+    "hint": "使用 AstrBot 的 T2I 把游戏名、封面、时长渲染成图片。关闭或渲染失败时降级为文本 + 封面图。",
+    "default": true
+  },
+  "default_subscriptions": {
+    "description": "默认推送会话（UMO）",
+    "type": "list",
+    "hint": "启动时自动订阅这些会话，格式如 aiocqhttp:GroupMessage:123456789。一般不用填，直接在群里发 /nso 订阅 即可。",
+    "default": [],
+    "items": {
+      "type": "string"
+    }
+  },
+  "app_version": {
+    "description": "NSO App 版本号",
+    "type": "string",
+    "hint": "用于 User-Agent / X-ProductVersion。Nintendo 更新 App 后若登录报错（status 9403 或 401），把这里改成最新版本号即可。",
+    "default": "2.11.0"
+  },
+  "f_api_url": {
+    "description": "f 参数服务地址",
+    "type": "string",
+    "hint": "默认使用 imink 公共实例 https://api.imink.app/f。可填写多个地址（逗号或空格分隔），按顺序尝试；也可换成自建服务，例如 http://127.0.0.1:12345/api/znca/f。注意：imink 公共实例自 2024-12 起受 Nintendo Play Integrity 影响长期不可用。",
+    "default": "https://api.imink.app/f"
+  },
+  "timezone": {
+    "description": "展示时区",
+    "type": "string",
+    "hint": "IANA 时区名，例如 Asia/Shanghai、Asia/Tokyo。",
+    "default": "Asia/Shanghai"
+  },
+  "max_push_per_cycle": {
+    "description": "单轮最多推送条数",
+    "type": "int",
+    "hint": "一轮轮询里最多推送多少条动态，防止大量好友同时上线刷屏。",
+    "default": 6
+  },
+  "friend_list_limit": {
+    "description": "好友列表显示上限",
+    "type": "int",
+    "hint": "/nso 好友 最多显示多少位好友。",
+    "default": 25
+  },
+  "render_timeout": {
+    "description": "卡片渲染超时（秒）",
+    "type": "int",
+    "hint": "T2I 渲染超过该时间就降级为文本推送。",
+    "default": 90
+  },
+  "request_timeout": {
+    "description": "HTTP 请求超时（秒）",
+    "type": "float",
+    "hint": "访问 Nintendo / f 参数服务的单次请求超时。",
+    "default": 30.0
+  },
+  "f_api_headers": {
+    "description": "f 服务附加请求头",
+    "type": "dict",
+    "hint": "JSON 对象。使用需要授权的 f 服务（如 nxapi-znca-api）时填写，例如 {\"Authorization\": \"Bearer <token>\", \"X-znca-Platform\": \"Android\", \"X-znca-Version\": \"3.5.0\"}。留空则不附加。",
+    "default": {}
+  }
+}
