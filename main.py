@@ -17,6 +17,11 @@ from astrbot.api.star import Context, Star, register
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from .nso.auth import (
+    DEFAULT_APP_VERSION,
+    DEFAULT_F_API_URL,
+    DEFAULT_F_CLIENT_VERSION,
+    DEFAULT_F_SCOPE,
+    DEFAULT_F_TOKEN_URL,
     LoginChallenge,
     NintendoAuth,
     NsoAuthRequired,
@@ -124,8 +129,8 @@ def _make_chain(components: list[Any]) -> Any:
 @register(
     PLUGIN_NAME,
     "GTFaiz",
-    "轮询任天堂好友在线/游玩状态，渲染游戏卡片推送到群，并支持查询好友游玩记录",
-    "1.0.0",
+    "轮询任天堂好友在线/游玩状态，渲染游戏卡片推送到群，并支持查询好友游玩记录（Coral 3.5 / nxapi）",
+    "2.0.0",
 )
 class NsoFriendsPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None) -> None:
@@ -140,9 +145,14 @@ class NsoFriendsPlugin(Star):
         self._transport = HttpxTransport(timeout=self._cfg_float("request_timeout", 30.0))
         self._auth = NintendoAuth(
             self._transport,
-            app_version=self._cfg_str("app_version", "2.11.0"),
-            f_api_url=self._cfg_str("f_api_url", "https://api.imink.app/f"),
+            app_version=self._cfg_str("app_version", DEFAULT_APP_VERSION),
+            f_api_url=self._cfg_str("f_api_url", DEFAULT_F_API_URL),
             f_api_headers=self._f_api_headers(),
+            f_api_client_id=self._cfg_str("f_api_client_id", ""),
+            f_api_client_secret=self._cfg_str("f_api_client_secret", ""),
+            f_api_scope=self._cfg_str("f_api_scope", DEFAULT_F_SCOPE),
+            f_api_token_url=self._cfg_str("f_api_token_url", DEFAULT_F_TOKEN_URL),
+            f_api_client_version=self._cfg_str("f_api_client_version", DEFAULT_F_CLIENT_VERSION),
             on_session_token=self._on_session_token,
             on_account=self._on_account,
         )

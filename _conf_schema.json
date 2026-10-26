@@ -47,14 +47,14 @@
   "app_version": {
     "description": "NSO App 版本号",
     "type": "string",
-    "hint": "用于 User-Agent / X-ProductVersion。Nintendo 更新 App 后若登录报错（status 9403 或 401），把这里改成最新版本号即可。",
-    "default": "2.11.0"
+    "hint": "必须与 f 服务支持的版本一致。当前 nxapi 公共实例为 3.5.0；Nintendo 更新后同步修改。",
+    "default": "3.5.0"
   },
   "f_api_url": {
-    "description": "f 参数服务地址",
+    "description": "f 参数 / 加解密服务地址",
     "type": "string",
-    "hint": "默认使用 imink 公共实例 https://api.imink.app/f。可填写多个地址（逗号或空格分隔），按顺序尝试；也可换成自建服务，例如 http://127.0.0.1:12345/api/znca/f。注意：imink 公共实例自 2024-12 起受 Nintendo Play Integrity 影响长期不可用。",
-    "default": "https://api.imink.app/f"
+    "hint": "默认 nxapi 公共实例 https://nxapi-znca-api.fancy.org.uk/api/znca/f。也可填自建服务，例如 http://192.168.0.3:12345/api/znca/f（插件会自动推导 encrypt-request / decrypt-response 地址）。",
+    "default": "https://nxapi-znca-api.fancy.org.uk/api/znca/f"
   },
   "timezone": {
     "description": "展示时区",
@@ -89,7 +89,37 @@
   "f_api_headers": {
     "description": "f 服务附加请求头",
     "type": "dict",
-    "hint": "JSON 对象。使用需要授权的 f 服务（如 nxapi-znca-api）时填写，例如 {\"Authorization\": \"Bearer <token>\", \"X-znca-Platform\": \"Android\", \"X-znca-Version\": \"3.5.0\"}。留空则不附加。",
+    "hint": "JSON 对象。使用自建服务或需要额外授权的服务时填写，例如 {\"Authorization\": \"Bearer ...\"}。留空则不附加。",
     "default": {}
+  },
+  "f_api_client_id": {
+    "description": "nxapi-auth 客户端 ID",
+    "type": "string",
+    "hint": "在 https://nxapi-auth.fancy.org.uk/oauth/clients 创建客户端后获得。使用自建 f 服务时可留空。",
+    "default": ""
+  },
+  "f_api_client_secret": {
+    "description": "nxapi-auth 客户端密钥",
+    "type": "string",
+    "hint": "Confidential 客户端的 client_secret，由 nxapi-auth 或服务维护者签发。请勿泄露。",
+    "default": ""
+  },
+  "f_api_scope": {
+    "description": "nxapi-auth 权限范围",
+    "type": "string",
+    "hint": "默认 ca:gf ca:er ca:dr（生成 f、加密请求、解密响应）。",
+    "default": "ca:gf ca:er ca:dr"
+  },
+  "f_api_token_url": {
+    "description": "nxapi-auth token 地址",
+    "type": "string",
+    "hint": "一般无需修改。",
+    "default": "https://nxapi-auth.fancy.org.uk/api/oauth/token"
+  },
+  "f_api_client_version": {
+    "description": "X-znca-Client-Version",
+    "type": "string",
+    "hint": "X-znca-Client-Version。默认值 d8fAZDPzwimzQ7c6 来自 nxapi 源码的兼容版本常量（见 nso/auth.py 注释）；正式客户端应以 nxapi-auth 为你的客户端签发的值为准，拿不到时先保持默认并询问服务维护者。",
+    "default": "d8fAZDPzwimzQ7c6"
   }
 }

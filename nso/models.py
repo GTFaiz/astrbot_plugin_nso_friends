@@ -27,7 +27,7 @@ def _as_str(value: Any, default: str = "") -> str:
 
 @dataclass(slots=True)
 class Game:
-    """presence.game 字段，见 /v3/Friend/List。"""
+    """presence.game 字段，见 /v4/Friend/List。"""
 
     name: str
     image_url: str = ""
@@ -64,7 +64,7 @@ class Game:
 
 @dataclass(slots=True)
 class Friend:
-    """好友条目，见 /v3/Friend/List 的 result.friends[]。"""
+    """好友条目，见 /v4/Friend/List 的 result.friends[]。"""
 
     id: int
     name: str

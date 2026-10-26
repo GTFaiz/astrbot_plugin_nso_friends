@@ -1,8 +1,8 @@
 name: astrbot_plugin_nso_friends
 display_name: 任天堂好友监控
-desc: 轮询 Nintendo Switch Online 好友状态，好友开始游玩或切换游戏时把游戏名、封面、累计时长渲染成卡片推送到群；支持查询好友当前游戏与本地游玩记录。
+desc: 轮询 Nintendo Switch Online 好友状态（Coral 3.5 / nxapi 加密协议），好友开始游玩或切换游戏时把游戏名、封面、累计时长渲染成卡片推送到群；支持查询好友当前游戏与本地游玩记录。
 short_desc: 任天堂好友游玩动态推送与查询。
-version: v1.0.0
+version: v2.0.0
 author: GTFaiz
 astrbot_version: ">=4.24.2"
 support_platforms:

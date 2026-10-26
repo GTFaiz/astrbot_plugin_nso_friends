@@ -1,10 +1,10 @@
-"""NSO 业务接口客户端。"""
+"""NSO 业务接口客户端（Coral v4 + 请求加密）。"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from .auth import NSO_API_BASE, NintendoAuth, NsoApiError
+from .auth import NintendoAuth, NsoApiError
 from .models import Friend
 
 
@@ -13,13 +13,9 @@ class NsoClient:
         self._auth = auth
 
     async def friends(self) -> list[Friend]:
-        """拉取好友列表（含当前游戏与在线状态）。"""
+        """拉取好友列表（/v4/Friend/List，请求与响应均加密）。"""
 
-        payload = await self._auth.request_json(
-            "POST",
-            f"{NSO_API_BASE}/v3/Friend/List",
-            json={},
-        )
+        payload = await self._auth.coral_request("/v4/Friend/List", {})
         result = payload.get("result")
         if not isinstance(result, dict):
             raise NsoApiError("好友列表响应缺少 result 字段。")

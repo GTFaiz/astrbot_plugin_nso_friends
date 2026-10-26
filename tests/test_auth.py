@@ -5,8 +5,9 @@ from urllib.parse import parse_qs, urlsplit
 
 from nso.auth import (
     CLIENT_ID,
+    DEFAULT_F_API_URL,
+    DEFAULT_F_TOKEN_URL,
     SESSION_TOKEN_URL,
-    NsoApiError,
     NsoAuthError,
     NsoAuthRequired,
     NintendoAuth,
@@ -15,9 +16,8 @@ from nso.auth import (
     parse_redirect_link,
 )
 from nso.client import NsoClient
-from nso.http import Response
 
-from tests.fake import FakeTransport, friend_payload
+from tests.fake import ENCRYPT_URL, LOGIN_URL, FakeTransport, friend_payload
 
 
 class LoginChallengeTest(unittest.TestCase):
@@ -45,28 +45,6 @@ class LoginChallengeTest(unittest.TestCase):
             parse_redirect_link("")
 
 
-class FallbackTransport(FakeTransport):
-    """f 服务多地址回退测试用传输层。"""
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.f_headers: list[dict] = []
-
-    async def request(self, method: str, url: str, **kwargs):
-        if url.startswith("https://broken.example/"):
-            self.requests.append((method, url, kwargs))
-            self.calls[url] += 1
-            return Response(500, b'{"error":true,"reason":"Something went wrong."}')
-        if url.startswith("https://good.example/"):
-            self.requests.append((method, url, kwargs))
-            self.calls[url] += 1
-            self.f_headers.append(dict(kwargs.get("headers") or {}))
-            import json
-
-            return Response(200, json.dumps({"f": "f2", "request_id": "req2", "timestamp": 1}).encode())
-        return await super().request(method, url, **kwargs)
-
-
 class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.transport = FakeTransport(friends=[friend_payload("Alice", game="Splatoon 3")])
@@ -81,7 +59,8 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.auth = NintendoAuth(
             self.transport,
-            app_version="2.11.0",
+            app_version="3.5.0",
+            f_api_headers={},
             on_session_token=on_token,
             on_account=on_account,
         )
@@ -95,6 +74,7 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(account["nickname"], "Me")
         self.assertEqual(account["friend_code"], "1234-5678-9012")
+        self.assertEqual(account["coral_user_id"], 123)
         self.assertEqual(self.saved_tokens, ["session-token-1"])
         self.assertEqual(self.saved_accounts[0]["nickname"], "Me")
         self.assertTrue(self.auth.credential_ready)
@@ -104,18 +84,21 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session_call["data"]["session_token_code"], "CODE")
         self.assertEqual(session_call["data"]["session_token_code_verifier"], challenge.verifier)
 
-        f_call = self.transport.last(self.auth.f_api_url)
-        self.assertEqual(f_call["json"], {"token": "id-token", "hash_method": 1})
+        f_call = self.transport.last(DEFAULT_F_API_URL)
+        body = f_call["json"]
+        self.assertEqual(body["hash_method"], "1")
+        self.assertEqual(body["token"], "id-token")
+        self.assertEqual(body["na_id"], "na-id")
+        self.assertEqual(body["encrypt_token_request"]["url"], LOGIN_URL)
+        self.assertEqual(body["encrypt_token_request"]["parameter"]["naIdToken"], "id-token")
+        self.assertEqual(f_call["headers"]["X-znca-Version"], "3.5.0")
+        self.assertEqual(f_call["headers"]["X-znca-Client-Version"], "d8fAZDPzwimzQ7c6")
 
-        login_call = self.transport.last("https://api-lp1.znc.srv.nintendo.net/v3/Account/Login")
-        parameter = login_call["json"]["parameter"]
-        self.assertEqual(parameter["naIdToken"], "id-token")
-        self.assertEqual(parameter["naCountry"], "JP")
-        self.assertEqual(parameter["naBirthday"], "2000-01-01")
-        self.assertEqual(parameter["language"], "zh-CN")
-        self.assertEqual(parameter["f"], "f-value")
-        self.assertEqual(login_call["headers"]["X-ProductVersion"], "2.11.0")
-        self.assertIn("com.nintendo.znca/2.11.0", login_call["headers"]["User-Agent"])
+        # 登录请求体是加密后的 octet-stream，并且走了解密接口
+        login_call = self.transport.last(LOGIN_URL)
+        self.assertTrue(login_call["content"].startswith(b"ENC:"))
+        self.assertEqual(login_call["headers"]["Content-Type"], "application/octet-stream")
+        self.assertGreaterEqual(self.transport.decrypt_count, 1)
 
         client = NsoClient(self.auth)
         friends = await client.friends()
@@ -123,8 +106,10 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(friends[0].game.name, "Splatoon 3")
         self.assertTrue(friends[0].playing)
 
-        friend_call = self.transport.last("https://api-lp1.znc.srv.nintendo.net/v3/Friend/List")
+        friend_call = self.transport.last("https://api-lp1.znc.srv.nintendo.net/v4/Friend/List")
         self.assertEqual(friend_call["headers"]["Authorization"], "Bearer cred-1")
+        self.assertTrue(friend_call["content"].startswith(b"ENC:"))
+        self.assertGreaterEqual(self.transport.encrypt_count, 1)
 
     async def test_credential_is_cached(self) -> None:
         challenge = create_login_challenge()
@@ -132,6 +117,29 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
         await self.auth.ensure_credential()
         await self.auth.ensure_credential()
         self.assertEqual(self.transport.login_count, 1)
+
+    async def test_oauth_is_used_for_nxapi(self) -> None:
+        transport = FakeTransport(friends=[friend_payload("Alice", game="Splatoon 3")])
+        auth = NintendoAuth(
+            transport,
+            app_version="3.5.0",
+            f_api_client_id="client-id",
+            f_api_client_secret="client-secret",
+            f_api_scope="ca:gf ca:er ca:dr",
+        )
+        challenge = create_login_challenge()
+        await auth.login_with_redirect(self._redirect(challenge), challenge)
+
+        self.assertEqual(transport.oauth_count, 1)
+        oauth = transport.oauth_requests[0]
+        self.assertEqual(oauth["grant_type"], "client_credentials")
+        self.assertEqual(oauth["client_id"], "client-id")
+        self.assertEqual(oauth["client_secret"], "client-secret")
+        self.assertEqual(oauth["scope"], "ca:gf ca:er ca:dr")
+        self.assertEqual(transport.last(DEFAULT_F_API_URL)["headers"]["Authorization"], "Bearer f-access")
+        await NsoClient(auth).friends()
+        self.assertEqual(transport.last(ENCRYPT_URL)["headers"]["Authorization"], "Bearer f-access")
+        self.assertEqual(transport.last(DEFAULT_F_TOKEN_URL)["headers"]["Accept"], "application/json")
 
     async def test_state_mismatch_is_rejected(self) -> None:
         challenge = create_login_challenge()
@@ -151,35 +159,6 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(NsoAuthRequired):
             await self.auth.ensure_credential()
 
-    async def test_f_service_fallback_and_headers(self) -> None:
-        transport = FallbackTransport()
-        auth = NintendoAuth(
-            transport,
-            f_api_url="https://broken.example/f, https://good.example/f",
-            f_api_headers={"Authorization": "Bearer test-token"},
-        )
-        challenge = create_login_challenge()
-        link = f"npf71b963c1b7b6d119://auth#session_token_code=CODE&state={challenge.state}"
-        account = await auth.login_with_redirect(link, challenge)
-        self.assertEqual(account["nickname"], "Me")
-        self.assertEqual(transport.calls["https://broken.example/f"], 1)
-        self.assertEqual(transport.calls["https://good.example/f"], 1)
-        self.assertEqual(transport.f_headers[0]["Authorization"], "Bearer test-token")
-
-    async def test_f_service_failure_message_is_actionable(self) -> None:
-        class Always500(FakeTransport):
-            async def request(self, method, url, **kwargs):
-                if url == "https://broken.example/f":
-                    return Response(500, b'{"error":true,"reason":"Something went wrong."}')
-                return await super().request(method, url, **kwargs)
-
-        auth = NintendoAuth(Always500(), app_version="2.11.0", f_api_url="https://broken.example/f")
-        challenge = create_login_challenge()
-        link = f"npf71b963c1b7b6d119://auth#session_token_code=CODE&state={challenge.state}"
-        with self.assertRaises(NsoApiError) as ctx:
-            await auth.login_with_redirect(link, challenge)
-        self.assertIn("Play Integrity", str(ctx.exception))
-
     async def test_expired_credential_triggers_relogin(self) -> None:
         client = NsoClient(self.auth)
         challenge = create_login_challenge()
@@ -191,7 +170,7 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(friends), 1)
         self.assertEqual(self.transport.login_count, 2)
         self.assertEqual(
-            self.transport.last("https://api-lp1.znc.srv.nintendo.net/v3/Friend/List")["headers"]["Authorization"],
+            self.transport.last("https://api-lp1.znc.srv.nintendo.net/v4/Friend/List")["headers"]["Authorization"],
             "Bearer cred-2",
         )
 
