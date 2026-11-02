@@ -251,6 +251,59 @@ class PluginCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(chain.chain[0].file, bytes)
         self.assertTrue(chain.chain[0].file.startswith(b"\x89PNG"))
 
+    async def test_friend_management_requires_admin(self) -> None:
+        member = FakeEvent(admin=False)
+        components = await self.plugin._cmd_add_friend(member, "1234-5678-9012")
+        self.assertIn("只有管理员", components[0].text)
+        components = await self.plugin._cmd_friend_requests(member, "")
+        self.assertIn("只有管理员", components[0].text)
+
+    async def test_add_friend_flow_with_confirmation(self) -> None:
+        await self.plugin._cmd_login(FakeEvent(), self._login_link())
+        event = FakeEvent()
+        components = await self.plugin._cmd_add_friend(event, "SW-1234-5678-9012")
+        self.assertIn("Target", components[0].text)
+        self.assertEqual(
+            self.plugin._pending_friend_requests[event.unified_msg_origin]["nsa_id"],
+            "nsa-target",
+        )
+
+        components = await self.plugin._cmd_confirm_add(event, "")
+        self.assertIn("已向 Target", components[0].text)
+        self.assertEqual(
+            self.transport.created_requests,
+            [{"nsaId": "nsa-target", "channel": "FRIEND_CODE"}],
+        )
+
+    async def test_friend_request_lists_and_actions(self) -> None:
+        await self.plugin._cmd_login(FakeEvent(), self._login_link())
+        event = FakeEvent()
+
+        received = await self.plugin._cmd_friend_requests(event, "")
+        self.assertIn("Sender", received[0].text)
+        self.assertIn("0123456789abcdef", received[0].text)
+
+        accepted = await self.plugin._cmd_accept_request(event, "0123456789abcdef")
+        self.assertIn("已接受", accepted[0].text)
+        self.assertEqual(self.transport.accepted_requests, ["0123456789abcdef"])
+
+        sent = await self.plugin._cmd_sent_requests(event, "")
+        self.assertIn("Receiver", sent[0].text)
+
+        cancelled = await self.plugin._cmd_cancel_request(event, "fedcba9876543210")
+        self.assertIn("已撤回", cancelled[0].text)
+        self.assertEqual(self.transport.cancelled_requests, ["fedcba9876543210"])
+
+        rejected = await self.plugin._cmd_reject_request(event, "0123456789abcdef")
+        self.assertIn("已拒绝", rejected[0].text)
+        self.assertEqual(self.transport.rejected_requests, ["0123456789abcdef"])
+
+    async def test_friend_code_normalization(self) -> None:
+        module = sys.modules["astrbot_plugin_nso_friends.main"]
+        self.assertEqual(module._normalize_friend_code("SW-1234-5678-9012"), "1234-5678-9012")
+        self.assertEqual(module._normalize_friend_code("1234 5678 9012"), "1234-5678-9012")
+        self.assertEqual(module._normalize_friend_code("123"), "")
+
     async def test_run_subcommand_help_and_unknown(self) -> None:
         components = await self.plugin._run_subcommand(FakeEvent(), "help", "")
         self.assertIn("/nso 登录", components[0].text)

@@ -91,6 +91,25 @@ class FakeTransport:
         self._credential_seq = 0
         self.login_parameters: list[dict[str, Any]] = []
         self.oauth_requests: list[dict[str, Any]] = []
+        self.created_requests: list[dict[str, Any]] = []
+        self.accepted_requests: list[str] = []
+        self.rejected_requests: list[str] = []
+        self.cancelled_requests: list[str] = []
+        self.received_requests: list[dict[str, Any]] = [
+            {
+                "id": "0123456789abcdef",
+                "createdAt": 1_700_000_000,
+                "hasRead": False,
+                "sender": {"id": 42, "nsaId": "nsa-sender", "name": "Sender", "imageUri": ""},
+            }
+        ]
+        self.sent_requests: list[dict[str, Any]] = [
+            {
+                "id": "fedcba9876543210",
+                "createdAt": 1_700_000_000,
+                "receiver": {"id": 43, "nsaId": "nsa-receiver", "name": "Receiver", "imageUri": ""},
+            }
+        ]
 
     async def request(self, method: str, url: str, **kwargs: Any) -> Response:
         self.requests.append((method, url, kwargs))
@@ -175,19 +194,51 @@ class FakeTransport:
                 self.login_count += 1
             elif target in (FRIEND_LIST_URL, "/v4/Friend/List"):
                 result = {"status": 0, "result": {"friends": self.friends, "extractFriendsIds": []}}
+            elif str(target).endswith("/v3/Friend/GetUserByFriendCode"):
+                result = {
+                    "status": 0,
+                    "result": {
+                        "id": 99,
+                        "nsaId": "nsa-target",
+                        "name": "Target",
+                        "imageUri": "",
+                        "isBlocking": False,
+                    },
+                }
+            elif str(target).endswith("/v4/FriendRequest/Create"):
+                payload = json.loads(payload.get("data") or "{}")
+                self.created_requests.append(payload.get("parameter") or {})
+                result = {"status": 0, "result": {"id": "created-request-id"}}
+            elif str(target).endswith("/v4/FriendRequest/Received/List"):
+                result = {"status": 0, "result": {"friendRequests": self.received_requests}}
+            elif str(target).endswith("/v3/FriendRequest/Sent/List"):
+                result = {"status": 0, "result": {"friendRequests": self.sent_requests}}
+            elif str(target).endswith("/v3/FriendRequest/Accept"):
+                payload = json.loads(payload.get("data") or "{}")
+                self.accepted_requests.append((payload.get("parameter") or {}).get("id", ""))
+                result = {"status": 0, "result": {}}
+            elif str(target).endswith("/v3/FriendRequest/Reject"):
+                payload = json.loads(payload.get("data") or "{}")
+                self.rejected_requests.append((payload.get("parameter") or {}).get("id", ""))
+                result = {"status": 0, "result": {}}
+            elif str(target).endswith("/v3/FriendRequest/Cancel"):
+                payload = json.loads(payload.get("data") or "{}")
+                self.cancelled_requests.append((payload.get("parameter") or {}).get("id", ""))
+                result = {"status": 0, "result": {}}
             else:
                 result = {"status": 0, "result": {}}
             return Response(200, json.dumps(result).encode("utf-8"), {"content-type": "text/plain"})
 
-        if url == LOGIN_URL:
-            # 加密后的 Account/Login 请求体原样返回，由 decrypt-response 解出登录结果
-            return Response(200, kwargs.get("content") or b"", {"content-type": "application/octet-stream"})
-
-        if url == FRIEND_LIST_URL:
+        if url.startswith(NSO_API_BASE + "/"):
             headers = kwargs.get("headers") or {}
             authorization = str(headers.get("Authorization") or "")
-            if self.expire_first_friend_call and authorization == "Bearer cred-1":
+            if (
+                url == FRIEND_LIST_URL
+                and self.expire_first_friend_call
+                and authorization == "Bearer cred-1"
+            ):
                 return Response(401, b"{}")
+            # 加密后的请求体原样返回，由 decrypt-response 解出对应结果
             return Response(200, kwargs.get("content") or b"", {"content-type": "application/octet-stream"})
 
         if url.startswith("https://") and url.endswith(("avatar", "cover_512")):

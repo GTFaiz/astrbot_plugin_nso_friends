@@ -82,6 +82,24 @@ _SUBCOMMANDS: dict[str, str] = {
     "刷新": "check",
     "me": "me",
     "我": "me",
+    "addfriend": "add_friend",
+    "加好友": "add_friend",
+    "添加好友": "add_friend",
+    "confirmadd": "confirm_add",
+    "确认加好友": "confirm_add",
+    "canceladd": "cancel_add",
+    "取消加好友": "cancel_add",
+    "requests": "friend_requests",
+    "好友申请": "friend_requests",
+    "申请列表": "friend_requests",
+    "sent": "sent_requests",
+    "已发申请": "sent_requests",
+    "accept": "accept_request",
+    "接受申请": "accept_request",
+    "reject": "reject_request",
+    "拒绝申请": "reject_request",
+    "cancelrequest": "cancel_request",
+    "取消申请": "cancel_request",
     "help": "help",
     "帮助": "help",
     "": "help",
@@ -101,6 +119,16 @@ _HELP_TEXT = """🎮 任天堂好友监控 · NSO Friends
 /nso 检查 — 立即拉取一次好友状态（管理员）
 /nso 我 — 当前绑定的账号
 
+管理员 · 好友管理：
+/nso 加好友 <好友码> — 查询并准备发送好友申请
+/nso 确认加好友 — 确认发送（需先执行上一条）
+/nso 取消加好友 — 放弃待发送的申请
+/nso 好友申请 — 查看收到的申请
+/nso 接受申请 <ID> — 接受申请
+/nso 拒绝申请 <ID> — 拒绝申请
+/nso 已发申请 — 查看已发送的申请
+/nso 取消申请 <ID> — 取消已发送的申请
+
 提示：检测到好友开始游玩或切换游戏时，会把游戏名、封面、累计时长渲染成卡片推送。"""
 
 
@@ -114,6 +142,13 @@ def _command_args(event: AstrMessageEvent) -> str:
             raw = ""
     raw = raw or str(getattr(event, "message_str", "") or "")
     return _COMMAND_PREFIX.sub("", raw, count=1).strip()
+
+
+def _normalize_friend_code(raw: str) -> str:
+    digits = re.sub(r"\D", "", raw or "")
+    if len(digits) != 12:
+        return ""
+    return f"{digits[:4]}-{digits[4:8]}-{digits[8:]}"
 
 
 async def _empty() -> str:
@@ -130,7 +165,7 @@ def _make_chain(components: list[Any]) -> Any:
     PLUGIN_NAME,
     "GTFaiz",
     "轮询任天堂好友在线/游玩状态，渲染游戏卡片推送到群，并支持查询好友游玩记录（Coral 3.5 / nxapi）",
-    "2.0.1",
+    "2.1.0",
 )
 class NsoFriendsPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None) -> None:
@@ -170,6 +205,7 @@ class NsoFriendsPlugin(Star):
         self._last_error: str = ""
         self._failures: int = 0
         self._last_auth_warning: float = 0.0
+        self._pending_friend_requests: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
     # ------------------------------------------------------------ 生命周期
@@ -554,6 +590,14 @@ class NsoFriendsPlugin(Star):
             "status": self._cmd_status,
             "check": self._cmd_check,
             "me": self._cmd_me,
+            "add_friend": self._cmd_add_friend,
+            "confirm_add": self._cmd_confirm_add,
+            "cancel_add": self._cmd_cancel_add,
+            "friend_requests": self._cmd_friend_requests,
+            "sent_requests": self._cmd_sent_requests,
+            "accept_request": self._cmd_accept_request,
+            "reject_request": self._cmd_reject_request,
+            "cancel_request": self._cmd_cancel_request,
         }
         handler = handlers.get(sub, self._cmd_help)
         return await handler(event, arg)
@@ -845,6 +889,134 @@ class NsoFriendsPlugin(Star):
             f"语言：{account.get('language') or '未知'}",
         ]
         return [Comp.Plain("\n".join(lines))]
+
+    # ------------------------------------------------------------ 好友管理
+    async def _cmd_add_friend(self, event: AstrMessageEvent, arg: str) -> list[Any]:
+        if not self._is_admin(event):
+            return [Comp.Plain("🔐 只有管理员可以发送好友申请。")]
+        code = _normalize_friend_code(arg)
+        if not code:
+            return [Comp.Plain("请提供 12 位好友码，例如：/nso 加好友 1234-5678-9012（SW- 前缀可省略）")]
+
+        target = await self._client.lookup_friend_code(code)
+        nsa_id = str(target.get("nsaId") or "").strip()
+        name = str(target.get("name") or "未知用户")
+        if not nsa_id:
+            return [Comp.Plain("好友码查询没有返回 nsaId，无法发送申请。")]
+
+        try:
+            friends = await self._fetch_friends(force=True)
+            if any(friend.nsa_id and friend.nsa_id == nsa_id for friend in friends):
+                return [Comp.Plain(f"「{name}」已经是你的好友，无需重复申请。")]
+        except NsoError:
+            pass
+
+        self._pending_friend_requests[self._umo(event)] = {
+            "nsa_id": nsa_id,
+            "name": name,
+            "code": code,
+            "created_at": time.time(),
+        }
+        return [
+            Comp.Plain(
+                f"找到用户：{name}\n好友码：{code}\n\n"
+                "确认发送好友申请请执行：/nso 确认加好友\n"
+                "放弃请执行：/nso 取消加好友（3 分钟内有效）"
+            )
+        ]
+
+    async def _cmd_confirm_add(self, event: AstrMessageEvent, arg: str) -> list[Any]:
+        if not self._is_admin(event):
+            return [Comp.Plain("🔐 只有管理员可以发送好友申请。")]
+        umo = self._umo(event)
+        record = self._pending_friend_requests.pop(umo, None)
+        if not record:
+            return [Comp.Plain("没有待确认的好友申请。请先执行 /nso 加好友 <好友码>。")]
+        if time.time() - float(record.get("created_at") or 0) > 180:
+            return [Comp.Plain("待确认的申请已超过 3 分钟，请重新执行 /nso 加好友 <好友码>。")]
+
+        payload = await self._client.send_friend_request(str(record["nsa_id"]))
+        request_id = str(((payload.get("result") or {}).get("id")) or "")
+        suffix = f"\n申请 ID：{request_id}" if request_id else ""
+        return [
+            Comp.Plain(
+                f"✅ 已向 {record.get('name')}（{record.get('code')}）发送好友申请。"
+                f"对方接受后才会出现在好友列表。{suffix}"
+            )
+        ]
+
+    async def _cmd_cancel_add(self, event: AstrMessageEvent, arg: str) -> list[Any]:
+        if not self._is_admin(event):
+            return [Comp.Plain("🔐 只有管理员可以管理好友申请。")]
+        record = self._pending_friend_requests.pop(self._umo(event), None)
+        if not record:
+            return [Comp.Plain("没有待确认的好友申请。")]
+        return [Comp.Plain(f"已取消向 {record.get('name')} 发送好友申请。")]
+
+    async def _cmd_friend_requests(self, event: AstrMessageEvent, arg: str) -> list[Any]:
+        if not self._is_admin(event):
+            return [Comp.Plain("🔐 只有管理员可以查看好友申请。")]
+        requests = await self._client.received_friend_requests()
+        if not requests:
+            return [Comp.Plain("📥 当前没有收到好友申请。")]
+        lines = [f"📥 收到 {len(requests)} 条好友申请"]
+        for item in requests[:10]:
+            sender = item.get("sender") or {}
+            name = str(sender.get("name") or "未知用户")
+            request_id = str(item.get("id") or "")
+            created = format_relative(float(item.get("createdAt") or 0), self._tz)
+            unread = "" if item.get("hasRead") else " · 未读"
+            lines.append(f"· {name} — {created}{unread}\n  ID：{request_id}")
+        if len(requests) > 10:
+            lines.append(f"… 仅显示前 10 条（共 {len(requests)} 条）")
+        lines.append("\n用 /nso 接受申请 <ID> 或 /nso 拒绝申请 <ID> 处理。")
+        return [Comp.Plain("\n".join(lines))]
+
+    async def _cmd_sent_requests(self, event: AstrMessageEvent, arg: str) -> list[Any]:
+        if not self._is_admin(event):
+            return [Comp.Plain("🔐 只有管理员可以查看好友申请。")]
+        requests = await self._client.sent_friend_requests()
+        if not requests:
+            return [Comp.Plain("📤 当前没有已发送的好友申请。")]
+        lines = [f"📤 已发送 {len(requests)} 条好友申请"]
+        for item in requests[:10]:
+            receiver = item.get("receiver") or {}
+            name = str(receiver.get("name") or "未知用户")
+            request_id = str(item.get("id") or "")
+            created = format_relative(float(item.get("createdAt") or 0), self._tz)
+            lines.append(f"· {name} — {created}\n  ID：{request_id}")
+        if len(requests) > 10:
+            lines.append(f"… 仅显示前 10 条（共 {len(requests)} 条）")
+        lines.append("\n用 /nso 取消申请 <ID> 撤回申请。")
+        return [Comp.Plain("\n".join(lines))]
+
+    async def _cmd_accept_request(self, event: AstrMessageEvent, arg: str) -> list[Any]:
+        if not self._is_admin(event):
+            return [Comp.Plain("🔐 只有管理员可以处理好友申请。")]
+        request_id = (arg or "").strip()
+        if not request_id:
+            return [Comp.Plain("请提供申请 ID，例如：/nso 接受申请 0123456789abcdef")]
+        await self._client.accept_friend_request(request_id)
+        self._friends_cache = None
+        return [Comp.Plain(f"✅ 已接受好友申请（ID：{request_id}）。好友列表会在下一轮刷新。")]
+
+    async def _cmd_reject_request(self, event: AstrMessageEvent, arg: str) -> list[Any]:
+        if not self._is_admin(event):
+            return [Comp.Plain("🔐 只有管理员可以处理好友申请。")]
+        request_id = (arg or "").strip()
+        if not request_id:
+            return [Comp.Plain("请提供申请 ID，例如：/nso 拒绝申请 0123456789abcdef")]
+        await self._client.reject_friend_request(request_id)
+        return [Comp.Plain(f"✅ 已拒绝好友申请（ID：{request_id}）。")]
+
+    async def _cmd_cancel_request(self, event: AstrMessageEvent, arg: str) -> list[Any]:
+        if not self._is_admin(event):
+            return [Comp.Plain("🔐 只有管理员可以处理好友申请。")]
+        request_id = (arg or "").strip()
+        if not request_id:
+            return [Comp.Plain("请提供申请 ID，例如：/nso 取消申请 0123456789abcdef")]
+        await self._client.cancel_friend_request(request_id)
+        return [Comp.Plain(f"✅ 已撤回好友申请（ID：{request_id}）。")]
 
     # ---------------------------------------------------------------- 工具
     @staticmethod
