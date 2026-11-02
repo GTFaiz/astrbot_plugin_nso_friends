@@ -130,7 +130,7 @@ def _make_chain(components: list[Any]) -> Any:
     PLUGIN_NAME,
     "GTFaiz",
     "轮询任天堂好友在线/游玩状态，渲染游戏卡片推送到群，并支持查询好友游玩记录（Coral 3.5 / nxapi）",
-    "2.0.0",
+    "2.0.1",
 )
 class NsoFriendsPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None) -> None:
@@ -150,6 +150,7 @@ class NsoFriendsPlugin(Star):
             f_api_headers=self._f_api_headers(),
             f_api_client_id=self._cfg_str("f_api_client_id", ""),
             f_api_client_secret=self._cfg_str("f_api_client_secret", ""),
+            f_api_shared_secret=self._cfg_str("f_api_shared_secret", ""),
             f_api_scope=self._cfg_str("f_api_scope", DEFAULT_F_SCOPE),
             f_api_token_url=self._cfg_str("f_api_token_url", DEFAULT_F_TOKEN_URL),
             f_api_client_version=self._cfg_str("f_api_client_version", DEFAULT_F_CLIENT_VERSION),

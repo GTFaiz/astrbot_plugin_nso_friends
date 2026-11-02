@@ -21,10 +21,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import secrets
 import time
-import uuid
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 from urllib.parse import parse_qs, quote, urlencode
@@ -136,6 +136,10 @@ def parse_redirect_link(link: str) -> tuple[str, str]:
     return code, state
 
 
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
 def _b64url_decode(data: str) -> bytes:
     padded = data + "=" * (-len(data) % 4)
     return base64.urlsafe_b64decode(padded.encode("ascii"))
@@ -153,6 +157,7 @@ class NintendoAuth:
         f_api_headers: dict[str, str] | None = None,
         f_api_client_id: str = "",
         f_api_client_secret: str = "",
+        f_api_shared_secret: str = "",
         f_api_scope: str = DEFAULT_F_SCOPE,
         f_api_token_url: str = DEFAULT_F_TOKEN_URL,
         f_api_client_version: str = DEFAULT_F_CLIENT_VERSION,
@@ -171,6 +176,7 @@ class NintendoAuth:
         }
         self._f_client_id = (f_api_client_id or "").strip()
         self._f_client_secret = (f_api_client_secret or "").strip()
+        self._f_shared_secret = (f_api_shared_secret or "").strip()
         self._f_scope = (f_api_scope or DEFAULT_F_SCOPE).strip()
         self._f_token_url = (f_api_token_url or DEFAULT_F_TOKEN_URL).strip()
         self._f_client_version = (f_api_client_version or DEFAULT_F_CLIENT_VERSION).strip()
@@ -270,7 +276,7 @@ class NintendoAuth:
             parameter["requestId"] = str(f_result.get("request_id") or "")
             parameter["timestamp"] = int(f_result.get("timestamp") or 0)
             raw = json.dumps({"parameter": parameter}, separators=(",", ":"))
-            body = await self._encrypt_request(f"{NSO_API_BASE}/v4/Account/Login", None, raw)
+            body = await self._encrypt_request("/v4/Account/Login", None, raw)
 
         response = await self._request(
             "POST",
@@ -367,11 +373,9 @@ class NintendoAuth:
 
         credential = await self.ensure_credential()
         for attempt in range(2):
-            body = json.dumps(
-                {"parameter": parameter or {}, "requestId": str(uuid.uuid4())},
-                separators=(",", ":"),
-            )
-            encrypted = await self._encrypt_request(f"{NSO_API_BASE}{path}", credential, body)
+            # Coral v4 不接受 requestId 字段；加密接口只接受 path（不是完整 URL）
+            body = json.dumps({"parameter": parameter or {}}, separators=(",", ":"))
+            encrypted = await self._encrypt_request(path, credential, body)
             response = await self._request(
                 "POST",
                 f"{NSO_API_BASE}{path}",
@@ -432,10 +436,21 @@ class NintendoAuth:
             data = {
                 "grant_type": "client_credentials",
                 "scope": self._f_scope,
-                "client_id": self._f_client_id,
             }
-            if self._f_client_secret:
+            if self._f_shared_secret:
+                if not self._f_client_id:
+                    raise NsoAuthError("配置了 f_api_shared_secret 但没有 f_api_client_id。")
+                # nxapi-auth 的 client_secret 页面尚未开放，官方推荐用 HS256 client assertion
+                data["client_id"] = self._f_client_id
+                data["client_assertion_type"] = (
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+                )
+                data["client_assertion"] = self._client_assertion()
+            elif self._f_client_secret:
+                data["client_id"] = self._f_client_id
                 data["client_secret"] = self._f_client_secret
+            else:
+                data["client_id"] = self._f_client_id
             response = await self._request(
                 "POST",
                 self._f_token_url,
@@ -455,6 +470,33 @@ class NintendoAuth:
             self._f_token = token
             self._f_token_expires_at = time.time() + max(120, expires_in - 60)
             return token
+
+    def _client_assertion(self) -> str:
+        """按 nxapi-auth 文档生成 HS256 JWT client assertion。"""
+
+        now = int(time.time())
+        header = {"typ": "JWT", "alg": "HS256"}
+        payload = {
+            "iss": self._f_client_id,
+            "aud": "https://nxapi-auth.fancy.org.uk",
+            "sub": self._f_client_id,
+            "exp": now + 60,
+            "nbf": now - 5,
+            "iat": now,
+            "typ": "client_assertion",
+            "client_id": self._f_client_id,
+        }
+        signing_input = (
+            _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+            + "."
+            + _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+        )
+        signature = hmac.new(
+            self._f_shared_secret.encode("utf-8"),
+            signing_input.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        return f"{signing_input}.{_b64url_encode(signature)}"
 
     async def _f_headers(self) -> dict[str, str]:
         headers = {

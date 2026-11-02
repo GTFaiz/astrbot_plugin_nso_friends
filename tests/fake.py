@@ -147,7 +147,7 @@ class FakeTransport:
             raw = base64.b64decode(body.get("data") or "")
             payload = json.loads(raw[len(b"ENC:"):])
             target = payload.get("url")
-            if target == LOGIN_URL:
+            if target in (LOGIN_URL, "/v4/Account/Login"):
                 self._credential_seq += 1
                 result = {
                     "status": 0,
@@ -173,7 +173,7 @@ class FakeTransport:
                     },
                 }
                 self.login_count += 1
-            elif target == FRIEND_LIST_URL:
+            elif target in (FRIEND_LIST_URL, "/v4/Friend/List"):
                 result = {"status": 0, "result": {"friends": self.friends, "extractFriendsIds": []}}
             else:
                 result = {"status": 0, "result": {}}

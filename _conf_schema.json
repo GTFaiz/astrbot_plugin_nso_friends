@@ -101,7 +101,7 @@
   "f_api_client_secret": {
     "description": "nxapi-auth 客户端密钥",
     "type": "string",
-    "hint": "Confidential 客户端的 client_secret，由 nxapi-auth 或服务维护者签发。请勿泄露。",
+    "hint": "普通 client_secret_post 方式。nxapi-auth 网页端目前没有生成入口；如服务维护者单独签发再填这里。通常改用下面的 Shared secret（HS256 client assertion）即可。",
     "default": ""
   },
   "f_api_scope": {
@@ -121,5 +121,11 @@
     "type": "string",
     "hint": "X-znca-Client-Version。默认值 d8fAZDPzwimzQ7c6 来自 nxapi 源码的兼容版本常量（见 nso/auth.py 注释）；正式客户端应以 nxapi-auth 为你的客户端签发的值为准，拿不到时先保持默认并询问服务维护者。",
     "default": "d8fAZDPzwimzQ7c6"
+  },
+  "f_api_shared_secret": {
+    "description": "nxapi-auth Shared secret（推荐）",
+    "type": "string",
+    "hint": "在客户端详情页的 Shared secret 区域点 Create 生成。插件会用它对 JWT client assertion 做 HS256 签名，不需要 client_secret 页面。重置后需同步更新。",
+    "default": ""
   }
 }

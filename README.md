@@ -49,11 +49,13 @@ https://nxapi-znca-api.fancy.org.uk/api/znca/f
 该服务需要 OAuth 客户端凭据。流程：
 
 1. 在 <https://nxapi-auth.fancy.org.uk/oauth/clients> 用 Discord 登录，创建一个 **Confidential** 客户端
-2. 在 `Scope` 里勾选 `ca:gf`、`ca:er`、`ca:dr`（显示 Requires approval 属正常）
-3. 到 [nxapi Discord](https://discord.com/invite/4D82rFkXRv) 的 `#nxapi-auth` 说明用途并申请开通
-4. 拿到 `client_id` / `client_secret` 后填进插件配置
+2. 在 `Scope` 区域往下找到 **`nxapi-znca-api`** 分组，勾选 **f-generation**、**Request encryption**、**Response decryption**（对应 `ca:gf` / `ca:er` / `ca:dr`），再点该区域的 **Save**；这三个不需要审批
+3. 在同一个客户端详情页往下找到 **Shared secret**，点 **Create**，复制生成的 shared secret（只显示一次）
+4. 把 `client_id` 和 shared secret 填进插件配置：`f_api_client_id`、`f_api_shared_secret`
 
-> 当前 nxapi-auth 网页端还没有生成 client secret 的界面（页面会明确提示 managing client secrets is not available yet），需要由服务维护者在后台签发。把 `client_id`、用途和 scopes 发给作者即可。
+插件会按 [nxapi-auth 文档](https://gitlab.fancy.org.uk/samuel/nxapi-auth/-/wikis/api/client-authentication) 用 shared secret 对 JWT client assertion 做 HS256 签名，再用 `client_assertion` 换 token。**不需要 client_secret 页面，也不需要等 scope 审批。**
+
+> Shared secret 重置后旧值立即失效，记得同步更新插件配置。普通 `client_secret_post` 方式仍未开放 UI；如果服务维护者单独给你签发了 client_secret，也可以填 `f_api_client_secret`。
 
 如果你不想用公共实例，可以自建 [nxapi-znca-api](https://github.com/samuelthomas2774/nxapi-znca-api)（需要 root Android / redroid + NSO App + Frida），然后把 `f_api_url` 指向内网地址，例如：
 
@@ -123,7 +125,8 @@ http://192.168.0.3:12345/api/znca/f
 | `app_version` | string | `3.5.0` | NSO App 版本号，必须与 f 服务一致 |
 | `f_api_url` | string | `https://nxapi-znca-api.fancy.org.uk/api/znca/f` | f/加解密服务地址 |
 | `f_api_client_id` | string | 空 | nxapi-auth 客户端 ID |
-| `f_api_client_secret` | string | 空 | nxapi-auth 客户端密钥 |
+| `f_api_client_secret` | string | 空 | 普通 client_secret（nxapi-auth 暂无 UI，通常用下一条） |
+| `f_api_shared_secret` | string | 空 | 客户端详情页生成的 Shared secret，用于 HS256 client assertion |
 | `f_api_scope` | string | `ca:gf ca:er ca:dr` | OAuth scope |
 | `f_api_token_url` | string | `https://nxapi-auth.fancy.org.uk/api/oauth/token` | OAuth token 地址 |
 | `f_api_client_version` | string | `d8fAZDPzwimzQ7c6` | `X-znca-Client-Version`，默认值借用 nxapi 的兼容版本常量 |
@@ -177,13 +180,13 @@ Nintendo 的 `/v4/Friend/List` 只暴露**当前正在玩的游戏**的 `totalPl
 ## 常见问题
 
 **登录提示 `invalid_client` / `Missing client authentication`**
-nxapi-auth 还没有为你的客户端签发 client secret。到 `#nxapi-auth` 提供 client_id 和用途，让维护者签发；拿到后填 `f_api_client_secret`。
+没有配置客户端认证。到客户端详情页创建 **Shared secret**，把 `f_api_client_id` + `f_api_shared_secret` 填上；插件会自动生成 HS256 client assertion。
 
 **f 接口返回 `401 unauthorised`**
 客户端的 API 访问还没被批准，或 token 失效。确认 `f_api_client_id` / `f_api_client_secret` 正确，并在 Discord 确认已开通。
 
-**f 接口返回 `403 insufficient_scope`**
-scope 没批全。需要 `ca:gf`、`ca:er`、`ca:dr` 三个。
+**f 接口返回 `403 insufficient_scope`，或 token 接口返回 `invalid_scope: unknown scope "ca:gf"`**
+客户端没有保存 f-generation 相关 scope。到客户端详情页 → `Scope` → `nxapi-znca-api` 分组，勾选 **f-generation**、**Request encryption**、**Response decryption** 并点 Save。
 
 **f 接口返回 `incompatible_client`**
 `X-znca-Client-Version` 不匹配。把 `f_api_client_version` 改成 nxapi-auth 为你的客户端签发的值（没有就保持默认）。

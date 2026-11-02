@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
@@ -141,6 +145,43 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transport.last(ENCRYPT_URL)["headers"]["Authorization"], "Bearer f-access")
         self.assertEqual(transport.last(DEFAULT_F_TOKEN_URL)["headers"]["Accept"], "application/json")
 
+    async def test_shared_secret_client_assertion(self) -> None:
+        transport = FakeTransport(friends=[friend_payload("Alice", game="Splatoon 3")])
+        auth = NintendoAuth(
+            transport,
+            app_version="3.5.0",
+            f_api_client_id="client-id",
+            f_api_shared_secret="shared-secret",
+        )
+        challenge = create_login_challenge()
+        await auth.login_with_redirect(self._redirect(challenge), challenge)
+
+        oauth = transport.oauth_requests[0]
+        self.assertEqual(
+            oauth["client_assertion_type"],
+            "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        )
+        self.assertEqual(oauth["client_id"], "client-id")
+        self.assertNotIn("client_secret", oauth)
+
+        assertion = oauth["client_assertion"]
+        header_seg, payload_seg, signature_seg = assertion.split(".")
+        claims = json.loads(_b64url_decode(payload_seg))
+        self.assertEqual(claims["iss"], "client-id")
+        self.assertEqual(claims["sub"], "client-id")
+        self.assertEqual(claims["aud"], "https://nxapi-auth.fancy.org.uk")
+        self.assertEqual(claims["typ"], "client_assertion")
+        self.assertEqual(claims["client_id"], "client-id")
+        self.assertGreater(claims["exp"], claims["iat"])
+
+        expected = hmac.new(
+            b"shared-secret",
+            f"{header_seg}.{payload_seg}".encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        self.assertEqual(_b64url_decode(signature_seg), expected)
+        self.assertEqual(transport.last(DEFAULT_F_API_URL)["headers"]["Authorization"], "Bearer f-access")
+
     async def test_state_mismatch_is_rejected(self) -> None:
         challenge = create_login_challenge()
         bad_link = "npf71b963c1b7b6d119://auth#session_token_code=CODE&state=WRONG"
@@ -173,6 +214,10 @@ class AuthFlowTest(unittest.IsolatedAsyncioTestCase):
             self.transport.last("https://api-lp1.znc.srv.nintendo.net/v4/Friend/List")["headers"]["Authorization"],
             "Bearer cred-2",
         )
+
+
+def _b64url_decode(data: str) -> bytes:
+    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
 
 
 if __name__ == "__main__":

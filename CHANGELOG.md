@@ -2,6 +2,19 @@
 
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## v2.0.1 — 2026-11-02
+
+### 修复
+
+- 支持 nxapi-auth **Shared secret + HS256 client assertion**，不再依赖尚未开放的 client_secret 页面；新增 `f_api_shared_secret` 配置。
+- Coral v4 请求体不再发送 `requestId`（否则 nxapi 返回 `invalid_request`）。
+- `encrypt-request` 的 `url` 改用 path（如 `/v4/Friend/List`），之前误传完整 URL 会导致生成无效密文。
+
+### 文档
+
+- 补充客户端 `Scope` 中 `nxapi-znca-api` 分组（f-generation / Request encryption / Response decryption）的勾选与保存步骤。
+- 更新 FAQ：`invalid_scope: unknown scope "ca:gf"` 的排查方法。
+
 ## v2.0.0 — 2026-10-26
 
 **破坏性变更**：协议从 v3 明文接口迁移到 Coral 3.5.0 / nxapi 加密协议，v1 的配置与登录方式不再适用。
