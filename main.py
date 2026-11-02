@@ -30,7 +30,7 @@ from .nso.auth import (
 )
 from .nso.client import NsoClient
 from .nso.http import HttpxTransport
-from .nso.images import ImageCache
+from .nso.images import ImageCache, to_data_uri
 from .nso.models import (
     Friend,
     format_clock,
@@ -45,6 +45,7 @@ from .nso.models import (
     total_minutes,
 )
 from .nso.monitor import Change, FriendMonitor, PollResult
+from .nso.pil_render import render_card_png
 from .nso.render import build_card_html, build_card_text, build_stopped_text
 from .nso.store import JsonStore
 
@@ -155,6 +156,10 @@ async def _empty() -> str:
     return ""
 
 
+async def _none() -> None:
+    return None
+
+
 def _make_chain(components: list[Any]) -> Any:
     from astrbot.api.event import MessageChain  # 延迟导入，避免影响单测
 
@@ -165,7 +170,7 @@ def _make_chain(components: list[Any]) -> Any:
     PLUGIN_NAME,
     "GTFaiz",
     "轮询任天堂好友在线/游玩状态，渲染游戏卡片推送到群，并支持查询好友游玩记录（Coral 3.5 / nxapi）",
-    "2.1.0",
+    "2.2.0",
 )
 class NsoFriendsPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None) -> None:
@@ -449,10 +454,26 @@ class NsoFriendsPlugin(Star):
     ) -> bytes | None:
         if not self._cfg_bool("render_card", True):
             return None
-        avatar_uri, cover_uri = await asyncio.gather(
-            self._images.data_uri(friend.image_url),
-            self._images.data_uri(friend.game.image_url) if friend.game else _empty(),
+        backend = self._cfg_str("render_backend", "pillow").lower()
+        avatar_bytes, cover_bytes = await asyncio.gather(
+            self._images.image_bytes(friend.image_url),
+            self._images.image_bytes(friend.game.image_url) if friend.game else _none(),
         )
+        if backend == "pillow":
+            local = self._render_card_local(
+                friend,
+                title=title,
+                avatar_bytes=avatar_bytes,
+                cover_bytes=cover_bytes,
+                started_at=started_at,
+                sessions=sessions,
+            )
+            if local:
+                return local
+            logger.warning("[NSO] 本地 Pillow 渲染不可用，尝试 T2I")
+
+        avatar_uri = to_data_uri(avatar_bytes) if avatar_bytes else ""
+        cover_uri = to_data_uri(cover_bytes) if cover_bytes else ""
         document = build_card_html(
             friend,
             title=title,
@@ -473,10 +494,52 @@ class NsoFriendsPlugin(Star):
                 ),
                 timeout=timeout,
             )
-        except Exception as exc:  # noqa: BLE001 - 渲染失败要降级
-            logger.warning("[NSO] 卡片渲染失败，降级为文本：%s", exc)
+        except Exception as exc:  # noqa: BLE001 - T2I 失败不阻塞推送
+            logger.warning("[NSO] T2I 渲染失败，改用本地 Pillow 渲染：%s", exc)
+            return self._render_card_local(
+                friend,
+                title=title,
+                avatar_bytes=avatar_bytes,
+                cover_bytes=cover_bytes,
+                started_at=started_at,
+                sessions=sessions,
+            )
+        image = await self._coerce_image(data)
+        if image:
+            return image
+        logger.warning("[NSO] T2I 没有返回可用图片，改用本地 Pillow 渲染")
+        return self._render_card_local(
+            friend,
+            title=title,
+            avatar_bytes=avatar_bytes,
+            cover_bytes=cover_bytes,
+            started_at=started_at,
+            sessions=sessions,
+        )
+
+    def _render_card_local(
+        self,
+        friend: Friend,
+        *,
+        title: str,
+        avatar_bytes: bytes | None,
+        cover_bytes: bytes | None,
+        started_at: int = 0,
+        sessions: list[dict[str, Any]] | None = None,
+    ) -> bytes | None:
+        try:
+            return render_card_png(
+                friend,
+                title=title,
+                tz=self._tz,
+                avatar_bytes=avatar_bytes,
+                cover_bytes=cover_bytes,
+                started_at=started_at,
+                sessions=sessions,
+            )
+        except Exception:  # noqa: BLE001 - Pillow 不可用时再降级文本
+            logger.warning("[NSO] 本地 Pillow 渲染也失败，降级为文本", exc_info=True)
             return None
-        return await self._coerce_image(data)
 
     async def _coerce_image(self, data: Any) -> bytes | None:
         if isinstance(data, (bytes, bytearray)):

@@ -55,13 +55,13 @@ class ImageCache:
         self._transport = transport
         self._ttl = ttl
         self._max_items = max_items
-        self._memory: OrderedDict[str, tuple[float, str]] = OrderedDict()
+        self._memory: OrderedDict[str, tuple[float, bytes]] = OrderedDict()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    async def data_uri(self, url: str) -> str:
+    async def image_bytes(self, url: str) -> bytes | None:
         url = (url or "").strip()
         if not url.startswith(("http://", "https://")):
-            return ""
+            return None
         now = time.time()
         cached = self._memory.get(url)
         if cached and cached[0] > now:
@@ -79,19 +79,24 @@ class ImageCache:
         if content is None:
             content = await self._download(url)
             if content is None:
-                return ""
+                return None
             try:
                 path.write_bytes(content)
             except OSError:
                 pass
 
-        uri = to_data_uri(content)
-        if uri:
-            self._memory[url] = (now + self._ttl, uri)
-            self._memory.move_to_end(url)
-            while len(self._memory) > self._max_items:
-                self._memory.popitem(last=False)
-        return uri
+        mime = detect_mime(content)
+        if mime is None:
+            return None
+        self._memory[url] = (now + self._ttl, content)
+        self._memory.move_to_end(url)
+        while len(self._memory) > self._max_items:
+            self._memory.popitem(last=False)
+        return content
+
+    async def data_uri(self, url: str) -> str:
+        content = await self.image_bytes(url)
+        return to_data_uri(content) if content else ""
 
     async def _download(self, url: str) -> bytes | None:
         try:

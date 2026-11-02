@@ -2,6 +2,18 @@
 
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## v2.2.0 — 2026-11-02
+
+### 新增
+
+- 新增本地 **Pillow 卡片渲染**（`render_backend: pillow`，默认），不再依赖 AstrBot T2I，解决 `t2i-local` 只支持 Markdown、无法渲染 HTML 模板导致的“卡片渲染失败”。
+- 新增 `render_backend` 配置：`pillow` / `auto` / `t2i`；T2I 失败时自动回退到 Pillow。
+- 图片缓存新增 `image_bytes()`，封面/头像只下载一次，同时供 T2I 与 Pillow 使用。
+
+### 修复
+
+- 使用只支持 Markdown 的本地 T2I 服务时，卡片会直接降级为文本的问题。
+
 ## v2.1.0 — 2026-11-02
 
 ### 新增

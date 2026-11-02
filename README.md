@@ -26,7 +26,7 @@ AstrBot 插件：轮询 Nintendo Switch Online 好友状态，好友**开始游�
   - 好友切换游戏 → 推送新卡片，并把上一段游玩区间写入本地记录
   - 好友结束游玩 → 可选文本推送（含本次观测时长）
   - 首次启动只建立快照，不会把当前所有在玩的好友一次性刷屏
-- **游戏卡片渲染**：游戏封面 + 好友头像 + 游戏名 + 官方累计时长 + 首次游玩 + 本次开始时间，通过 AstrBot T2I 输出 PNG；失败自动降级为文本 + 封面图
+- **游戏卡片渲染**：游戏封面 + 好友头像 + 游戏名 + 官方累计时长 + 首次游玩 + 本次开始时间。默认用 **Pillow 本地渲染**（不依赖 T2I / 网络），也可切换 AstrBot T2I；失败自动降级为文本 + 封面图
 - **好友查询**：`/nso 查询 好友` 出详情卡片；`/nso 记录 好友` 显示官方累计时长 + 本地观测到的游玩区间
 - **分群订阅**：每个群/私聊独立开关，可只监控指定好友；登录后自动订阅当前会话
 - **凭证维护**：`webApiServerCredential` 过期或返回 `9404` 时自动重新登录
@@ -130,6 +130,7 @@ http://192.168.0.3:12345/api/znca/f
 | `notify_game_change` | bool | `true` | 推送"切换游戏" |
 | `notify_game_stop` | bool | `false` | 推送"结束游玩"（文本） |
 | `render_card` | bool | `true` | 是否渲染卡片图片 |
+| `render_backend` | string | `pillow` | `pillow` 本地 Pillow（推荐）/ `auto` 先 T2I 再 Pillow / `t2i` 先 T2I 再 Pillow |
 | `default_subscriptions` | list | `[]` | 启动时自动订阅的会话 UMO |
 | `app_version` | string | `3.5.0` | NSO App 版本号，必须与 f 服务一致 |
 | `f_api_url` | string | `https://nxapi-znca-api.fancy.org.uk/api/znca/f` | f/加解密服务地址 |
@@ -206,8 +207,8 @@ Nintendo 的 `/v4/Friend/List` 只暴露**当前正在玩的游戏**的 `totalPl
 **`Coral 接口返回 status=9404`**
 凭证过期，插件会自动重新登录；如果连续出现，检查 `session_token` 是否被 Nintendo 注销。
 
-**卡片没渲染出来，只有文字**
-检查 AstrBot 的 T2I 服务；渲染超时/失败会自动降级，属预期行为。可关闭 `render_card` 避免每次等超时。
+**卡片没渲染出来，或提示「若使用的是在线渲染服务请改成本体t2i-local服务」**
+这是 AstrBot 的 T2I 配置指向了只支持 Markdown 的本地服务（如 `http://t2i-local:8099`），无法渲染 HTML 模板。插件默认已改用 `render_backend: pillow`，直接本地出图，不再依赖 T2I；确认配置里是 `pillow` 即可。若仍失败，检查容器内是否有 Pillow 与 Noto CJK 字体。
 
 **群里没有推送**
 确认在**该群**发过 `/nso 订阅`（私聊登录不会自动订阅群），并用 `/nso 状态` 查看登录态与轮询是否正常。

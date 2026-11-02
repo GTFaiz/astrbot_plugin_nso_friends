@@ -127,5 +127,11 @@
     "type": "string",
     "hint": "在客户端详情页的 Shared secret 区域点 Create 生成。插件会用它对 JWT client assertion 做 HS256 签名，不需要 client_secret 页面。重置后需同步更新。",
     "default": ""
+  },
+  "render_backend": {
+    "description": "卡片渲染方式",
+    "type": "string",
+    "hint": "pillow：本地 Pillow 直接出图（默认，推荐；不需要 T2I）；auto：先试 T2I，失败再用 Pillow；t2i：先试 T2I，失败再用 Pillow。可选值：pillow / auto / t2i。",
+    "default": "pillow"
   }
 }
