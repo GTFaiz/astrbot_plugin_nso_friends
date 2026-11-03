@@ -142,22 +142,27 @@ def render_card_png(
     """渲染卡片；缺少 Pillow 或字体时返回 None，由调用方降级为文本。"""
 
     try:
-        from PIL import Image, ImageDraw
+        from PIL import Image, ImageDraw, ImageOps
     except Exception:  # noqa: BLE001 - 没有 Pillow 就降级
         return None
 
     now = datetime.now(tz).timestamp() if now is None else now
     sessions = list(sessions) if sessions is not None else []
-
     game = friend.game if friend.playing else None
     game_title = game.name if game else "当前未在游玩"
-    game_lines = [game_title]
 
-    # 先估算高度（后续真正绘制时再按字体重算一次）
-    height = 620
+    measure = ImageDraw.Draw(Image.new("RGB", (10, 10), (0, 0, 0)))
+    game_lines = _wrap(measure, game_title, _font(26, True), 640, 2)
+
+    friend_top = 104
+    friend_height = 90
+    game_top = friend_top + friend_height + 18
+    cover_box = 320
+    game_height = 20 + cover_box + 18 + len(game_lines) * 34 + 18 + 64 + 16
+    local_height = 78 if sessions else 0
+    height = game_top + game_height + (16 + local_height if sessions else 0) + 56
+
     image = _gradient(WIDTH, height).convert("RGBA")
-
-    # 右上角红色光晕
     glow = Image.new("RGBA", (WIDTH, height), (0, 0, 0, 0))
     ImageDraw.Draw(glow).ellipse((WIDTH - 260, -220, WIDTH + 220, 260), fill=(230, 0, 18, 44))
     image = Image.alpha_composite(image, glow)
@@ -177,8 +182,6 @@ def render_card_png(
     draw.text((PAD, 52), title, font=_font(30, True), fill=white)
 
     # 好友区域
-    friend_top = 104
-    friend_height = 90
     draw.rounded_rectangle(
         (PAD, friend_top, WIDTH - PAD, friend_top + friend_height),
         radius=18,
@@ -187,27 +190,33 @@ def render_card_png(
     )
     avatar_size = 58
     avatar_x, avatar_y = PAD + 18, friend_top + 16
+    avatar_ok = False
     if avatar_bytes:
         try:
             image.alpha_composite(_circle_image(avatar_bytes, avatar_size), (avatar_x, avatar_y))
+            avatar_ok = True
         except Exception:  # noqa: BLE001
-            avatar_bytes = None
-    if not avatar_bytes:
+            avatar_ok = False
+    if not avatar_ok:
         draw.ellipse(
             (avatar_x, avatar_y, avatar_x + avatar_size, avatar_y + avatar_size),
             fill=(42, 49, 68),
         )
-        initial = (friend.name or "?")[:1]
         draw.text(
             (avatar_x + avatar_size / 2, avatar_y + avatar_size / 2 - 1),
-            initial,
+            (friend.name or "?")[:1],
             font=_font(26, True),
             fill=(210, 218, 235),
             anchor="mm",
         )
 
     name_x = avatar_x + avatar_size + 18
-    draw.text((name_x, friend_top + 18), _ellipsis(draw, friend.name, _font(23, True), 360), font=_font(23, True), fill=white)
+    draw.text(
+        (name_x, friend_top + 18),
+        _ellipsis(draw, friend.name, _font(23, True), 360),
+        font=_font(23, True),
+        fill=white,
+    )
     meta = ["好友"]
     if friend.is_favorite:
         meta.append("特别好友")
@@ -237,70 +246,85 @@ def render_card_png(
         anchor="mm",
     )
 
-    # 游戏区域
-    game_top = friend_top + friend_height + 18
-    game_height = 190
+    # 游戏区域：封面居中完整显示，游戏名与统计在封面下方
     draw.rounded_rectangle(
         (PAD, game_top, WIDTH - PAD, game_top + game_height),
         radius=20,
         fill=(14, 18, 28, 240),
         outline=(36, 42, 58),
     )
-    cover_w, cover_h = 246, 138
-    cover_x, cover_y = PAD + 18, game_top + 20
+
+    box_x = (WIDTH - cover_box) // 2
+    box_y = game_top + 20
+    draw.rounded_rectangle(
+        (box_x, box_y, box_x + cover_box, box_y + cover_box),
+        radius=20,
+        fill=(20, 25, 38),
+        outline=(40, 48, 66),
+    )
+
     cover_ok = False
     if cover_bytes:
         try:
-            image.alpha_composite(
-                _rounded_image(cover_bytes, (cover_w, cover_h), 14),
-                (cover_x, cover_y),
+            with Image.open(io.BytesIO(cover_bytes)) as source:
+                contained = ImageOps.contain(
+                    source.convert("RGB"),
+                    (cover_box - 2, cover_box - 2),
+                    Image.LANCZOS,
+                )
+            mask = Image.new("L", contained.size, 0)
+            ImageDraw.Draw(mask).rounded_rectangle(
+                (0, 0, contained.width, contained.height),
+                radius=16,
+                fill=255,
             )
+            rounded = Image.new("RGBA", contained.size, (0, 0, 0, 0))
+            rounded.paste(contained, (0, 0), mask)
+            px = box_x + (cover_box - contained.width) // 2
+            py = box_y + (cover_box - contained.height) // 2
+            image.alpha_composite(rounded, (px, py))
             cover_ok = True
         except Exception:  # noqa: BLE001
             cover_ok = False
     if not cover_ok:
-        draw.rounded_rectangle(
-            (cover_x, cover_y, cover_x + cover_w, cover_y + cover_h),
-            radius=14,
-            fill=(32, 38, 56),
-        )
         draw.text(
-            (cover_x + cover_w / 2, cover_y + cover_h / 2),
+            (WIDTH / 2, box_y + cover_box / 2),
             "Nintendo Switch",
-            font=_font(16, True),
+            font=_font(18, True),
             fill=(120, 132, 160),
             anchor="mm",
         )
 
-    info_x = cover_x + cover_w + 22
-    info_width = WIDTH - PAD - 18 - info_x
+    text_y = box_y + cover_box + 18
+    for line in game_lines:
+        draw.text((WIDTH / 2, text_y), line, font=_font(26, True), fill=white, anchor="ma")
+        text_y += 34
+
     if game:
-        game_lines = _wrap(draw, game.name, _font(24, True), info_width, 2)
-        for index, line in enumerate(game_lines):
-            draw.text((info_x, game_top + 22 + index * 32), line, font=_font(24, True), fill=white)
         rows = [
             ("累计游玩", format_duration(game.total_minutes)),
             ("首次游玩", format_date(game.first_played_at, tz) if game.first_played_at else "未知"),
         ]
         if started_at:
             rows.append(("本次开始", format_clock(started_at, tz)))
-        row_y = game_top + 26 + len(game_lines) * 32 + 6
-        for label, value in rows:
-            draw.text((info_x, row_y), label, font=_font(14), fill=muted)
-            draw.text((WIDTH - PAD - 18, row_y), value, font=_font(14, True), fill=white, anchor="ra")
-            row_y += 26
+        column_width = 640 / max(1, len(rows))
+        start_x = (WIDTH - 640) / 2
+        stat_y = text_y + 12
+        for index, (label, value) in enumerate(rows):
+            center_x = start_x + column_width * (index + 0.5)
+            draw.text((center_x, stat_y), label, font=_font(13), fill=muted, anchor="ma")
+            draw.text((center_x, stat_y + 26), value, font=_font(17, True), fill=white, anchor="ma")
     else:
-        draw.text((info_x, game_top + 26), "当前未在游玩", font=_font(24, True), fill=white)
-        detail = "好友在线，但没有公开正在游玩的游戏" if friend.online else "最后在线：" + (
-            format_date(friend.logout_at, tz) if friend.logout_at else "未知"
+        detail = (
+            "好友在线，但没有公开正在游玩的游戏"
+            if friend.online
+            else "最后在线：" + (format_date(friend.logout_at, tz) if friend.logout_at else "未知")
         )
-        draw.text((info_x, game_top + 66), "状态", font=_font(14), fill=muted)
-        draw.text((WIDTH - PAD - 18, game_top + 66), badge_text, font=_font(14, True), fill=white, anchor="ra")
-        draw.text((info_x, game_top + 96), _ellipsis(draw, detail, _font(14), info_width), font=_font(14), fill=white)
+        draw.text((WIDTH / 2, text_y + 8), detail, font=_font(15), fill=muted, anchor="ma")
 
     # 本地记录
-    footer_top = game_top + game_height + 16
     if sessions:
+        local_top = game_top + game_height + 16
         week = [item for item in sessions if float(item.get("start") or 0) >= week_ago()]
         summary = (
             f"本插件记录：累计 {len(sessions)} 次 · 近 7 天 {len(week)} 次 / "
@@ -318,14 +342,14 @@ def render_card_png(
         except Exception:  # noqa: BLE001
             recent_text = ""
         draw.rounded_rectangle(
-            (PAD, footer_top, WIDTH - PAD, footer_top + 74),
+            (PAD, local_top, WIDTH - PAD, local_top + local_height),
             radius=14,
             fill=(22, 34, 58, 235),
             outline=(44, 66, 110),
         )
-        draw.text((PAD + 16, footer_top + 12), summary, font=_font(13), fill=(169, 185, 216))
+        draw.text((PAD + 16, local_top + 12), summary, font=_font(13), fill=(169, 185, 216))
         if recent_text:
-            draw.text((PAD + 16, footer_top + 38), recent_text, font=_font(13), fill=(169, 185, 216))
+            draw.text((PAD + 16, local_top + 40), recent_text, font=_font(13), fill=(169, 185, 216))
 
     # 页脚
     draw.text((PAD, height - 32), "Nintendo Switch Online API · AstrBot", font=_font(12), fill=dim)
