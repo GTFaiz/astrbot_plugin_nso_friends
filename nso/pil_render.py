@@ -157,7 +157,7 @@ def render_card_png(
     friend_top = 104
     friend_height = 90
     game_top = friend_top + friend_height + 18
-    cover_box = 320
+    cover_box = 420
     game_height = 20 + cover_box + 18 + len(game_lines) * 34 + 18 + 64 + 16
     local_height = 78 if sessions else 0
     height = game_top + game_height + (16 + local_height if sessions else 0) + 56

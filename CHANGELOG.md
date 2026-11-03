@@ -2,6 +2,13 @@
 
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## v2.2.3 — 2026-11-03
+
+### 变更
+
+- 封面从 320×320 放大到 420×420，仍然按原比例完整居中显示，不裁切。
+- 同步更新 `docs/preview-pillow.png` 预览图。
+
 ## v2.2.2 — 2026-11-03
 
 ### 变更
