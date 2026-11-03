@@ -335,8 +335,14 @@ def render_card_png(
             start = float(recent.get("start") or 0)
             end = float(recent.get("end") or 0)
             minutes = max(1, int((end - start) // 60))
+            start_dt = datetime.fromtimestamp(int(start), tz)
+            end_dt = datetime.fromtimestamp(int(end), tz)
+            if start_dt.date() == end_dt.date():
+                span = f"{start_dt:%H:%M}–{end_dt:%H:%M}"
+            else:
+                span = f"{format_clock(start, tz)}–{format_clock(end, tz)}"
             recent_text = (
-                f"最近：{format_clock(start, tz)}–{format_clock(end, tz)}"
+                f"最近：{span}"
                 f"《{recent.get('game') or '未知游戏'}》{format_duration(minutes)}"
             )
         except Exception:  # noqa: BLE001

@@ -4,7 +4,9 @@ AstrBot 插件：轮询 Nintendo Switch Online 好友状态，好友**开始游�
 
 > 非官方插件。Nintendo 没有公开 API，本插件依赖 NSO App 的私有接口，账号使用风险请自行评估。
 
-卡片样式预览：用浏览器打开 [`docs/preview.html`](docs/preview.html)（离线示例数据，不依赖 T2I）。
+卡片预览：![Pillow 卡片](docs/preview-pillow.png)
+
+> 旧版 T2I HTML 卡片预览见 [`docs/preview.html`](docs/preview.html)。
 
 ## 协议版本（重要）
 
