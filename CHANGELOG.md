@@ -2,6 +2,14 @@
 
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## v2.2.4 — 2026-11-04
+
+### 变更
+
+- 识别 Coral `status=9427 Upgrade required`：日志与错误信息会提示 Nintendo 强制升级 NSO App，并给出当前 `app_version` 与 f 服务版本检查地址。
+- 遇到 9427 时轮询退避改为 1 小时，避免每 30 分钟重复刷屏。
+- README 增加 9427 排查步骤：先看 nxapi `/config` 的 `nso_version`，支持新版本后再改 `app_version`。
+
 ## v2.2.3 — 2026-11-03
 
 ### 变更

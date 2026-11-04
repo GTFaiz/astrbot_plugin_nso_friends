@@ -209,6 +209,11 @@ Nintendo 的 `/v4/Friend/List` 只暴露**当前正在玩的游戏**的 `totalPl
 **`Coral 接口返回 status=9404`**
 凭证过期，插件会自动重新登录；如果连续出现，检查 `session_token` 是否被 Nintendo 注销。
 
+**`Coral 接口返回 status=9427：Upgrade required`**
+Nintendo 发布了新版 NSO App（例如 2026-10-29 的 3.6.0），旧版本被强制下线。先看 `https://nxapi-znca-api.fancy.org.uk/api/znca/config` 的 `nso_version`：
+- 如果它仍是 3.5.0，说明 nxapi 公共 f 服务还没支持新版，只能等它更新（或自建支持新版的 f 服务）
+- 如果它已经是 3.6.0，把插件配置 `app_version` 改成 `3.6.0` 并重载；`f_api_client_version` 如有变化也一起更新
+
 **卡片没渲染出来，或提示「若使用的是在线渲染服务请改成本体t2i-local服务」**
 这是 AstrBot 的 T2I 配置指向了只支持 Markdown 的本地服务（如 `http://t2i-local:8099`），无法渲染 HTML 模板。插件默认已改用 `render_backend: pillow`，直接本地出图，不再依赖 T2I；确认配置里是 `pillow` 即可。若仍失败，检查容器内是否有 Pillow 与 Noto CJK 字体。
 

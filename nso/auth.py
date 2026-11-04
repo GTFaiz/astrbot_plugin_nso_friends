@@ -605,7 +605,13 @@ class NintendoAuth:
             return
         message = str(payload.get("errorMessage") or payload.get("message") or "").strip()
         hint = ""
-        if status in (9403, 9404, 9406):
+        if status == 9427:
+            hint = (
+                f"（Nintendo 要求升级 NSO App：当前 app_version={self.app_version}。"
+                "请等 f 服务的 /config 显示新版本后，把 app_version 改成对应版本；"
+                "nxapi 公共实例尚未支持新版本时会持续返回 9427）"
+            )
+        elif status in (9403, 9404, 9406):
             hint = "（登录凭证已失效；若持续出现请重新 /nso 登录）"
         raise NsoApiError(
             f"Coral 接口返回 status={status}" + (f"：{message}" if message else "") + hint,

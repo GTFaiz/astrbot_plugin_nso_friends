@@ -170,7 +170,7 @@ def _make_chain(components: list[Any]) -> Any:
     PLUGIN_NAME,
     "GTFaiz",
     "轮询任天堂好友在线/游玩状态，渲染游戏卡片推送到群，并支持查询好友游玩记录（Coral 3.5 / nxapi）",
-    "2.2.3",
+    "2.2.4",
 )
 class NsoFriendsPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | None = None) -> None:
@@ -353,7 +353,11 @@ class NsoFriendsPlugin(Star):
                     self._last_poll_ok = False
                     self._last_error = f"{type(exc).__name__}: {exc}"
                     logger.warning("[NSO] 轮询失败（连续 %s 次）：%s", self._failures, exc)
-                    delay = min(interval * (2 ** min(self._failures, 3)), 1800)
+                    if getattr(exc, "status", None) == 9427:
+                        # Nintendo 强制升级 App，f 服务未跟上时会持续失败；降频到 1 小时
+                        delay = 3600
+                    else:
+                        delay = min(interval * (2 ** min(self._failures, 3)), 1800)
             delay = max(30.0, delay) * (0.95 + random.random() * 0.1)
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=delay)
